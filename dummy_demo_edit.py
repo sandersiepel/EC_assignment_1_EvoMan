@@ -16,8 +16,8 @@ import pickle
 
 # CONFIGURATION
 experiment_name = 'dummy_NEAT'
-mode = 'train' # Either train or test. In case of test there should be a pickle file present
-generations = 100
+mode = 'test' # Either train or test. In case of test there should be a pickle file present
+generations = 30
 
 # List of enemies to beat. Multiple enemies will result in an iteration of separate training sessions (specialist training)
 # Works in both train and test stages, given for testing a pickle file is present for each enemy in the structure: winner_x.pkl where x = enemy number.
@@ -81,7 +81,6 @@ def eval_genomes(genomes, config):
 					  	  player_controller=player_controller(net),
 						  enemymode="static",
 						  level=2) # Using level 2 is obligated, do NOT change
-
 
 		f, p, e, t = env.play()
 		
