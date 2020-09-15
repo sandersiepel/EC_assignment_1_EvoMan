@@ -17,7 +17,7 @@ import pickle
 # CONFIGURATION
 experiment_name = 'dummy_NEAT'
 mode = 'test' # Either train or test. In case of test there should be a pickle file present
-generations = 30
+generations = 100
 
 # List of enemies to beat. Multiple enemies will result in an iteration of separate training sessions (specialist training)
 # Works in both train and test stages, given for testing a pickle file is present for each enemy in the structure: winner_x.pkl where x = enemy number.
