@@ -62,67 +62,108 @@ toolbox.register("select", tools.selTournament, tournsize=3) # Could of course u
 generations = 100
 CXPB = 0.5 # The probability with which two individuals are crossed
 MUTPB = 0.2 # The probability for mutating an individual
-goal_fit = 100 # Termination fitness level to be reached
+goal_fit = 90 # Termination fitness level to be reached
 pop_size = 50 # Population size for initialization
+run_mode = 'train' # Either train or test
+
+# List of enemies to beat. Multiple enemies will result in an iteration of separate training sessions (specialist training)
+# Works in both train and test stages, given for testing a pickle file is present for each enemy in the structure: winner_x.pkl where x = enemy number.
+enemies = [1, 2, 3, 4, 5, 6, 7] 
 
 
 def main():
-	# Initialize population with shape (n_size, pop_size)
-	pop = toolbox.population(n=pop_size)
+	for e in enemies:
+		# Initialize population with shape (n_size, pop_size)
+		pop = toolbox.population(n=pop_size)
 
-	fitnesses = list(map(toolbox.evaluate, pop)) # List of tuples: (fitness, )
-	for ind, fit in zip(pop, fitnesses):
-		ind.fitness.values = fit # Set each individual's fitness level for the framework
+		fitnesses = list(map(toolbox.evaluate, pop)) # List of tuples: (fitness, )
+		for ind, fit in zip(pop, fitnesses):
+			ind.fitness.values = fit # Set each individual's fitness level for the framework
 
-	fits = [ind.fitness.values[0] for ind in pop] # Plain list of all fitness values (float)
-	
-	g = 0 # Generation counter
-
-	# As long as we haven't reached our fitness goal or the max generations, keep running
-	while max(fits) < goal_fit and g < generations:
-		g += 1
-		print("Generation {}. Population size: {}".format(g, len(pop)))
-
-		offspring = toolbox.select(pop, len(pop)) 
+		fits = [ind.fitness.values[0] for ind in pop] # Plain list of all fitness values (float)
 		
-		# Clone the selected individuals
-		offspring = list(map(toolbox.clone, offspring))
+		g = 0 # Generation counter
 
-		# Apply crossover and mutation on the offspring
-		for child1, child2 in zip(offspring[::2], offspring[1::2]): # Loop over all offspring
-			if random.random() < CXPB: # Probability the two are going to crossed
-				toolbox.mate(child1, child2)
-				del child1.fitness.values # Delete their old entries
-				del child2.fitness.values
+		# As long as we haven't reached our fitness goal or the max generations, keep running
+		while max(fits) < goal_fit and g < generations:
+			g += 1
+			print("Generation {}. Population size: {}".format(g, len(pop)))
 
-		for mutant in offspring:
-			if random.random() < MUTPB: # Are we going to mutate? Try for each individual
-				print('mutating...')
-				toolbox.mutate(mutant)
-				del mutant.fitness.values
+			offspring = toolbox.select(pop, len(pop)) 
+			
+			# Clone the selected individuals
+			offspring = list(map(toolbox.clone, offspring))
 
-		# Evaluate the individuals with an invalid fitness since for some we deleted their fitness values
-		invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
+			# Apply crossover and mutation on the offspring
+			for child1, child2 in zip(offspring[::2], offspring[1::2]): # Loop over all offspring
+				if random.random() < CXPB: # Probability the two are going to crossed
+					toolbox.mate(child1, child2)
+					del child1.fitness.values # Delete their old entries
+					del child2.fitness.values
 
-		print('There are {} individuals with no valid fitness function, lets validate them.'.format(len(invalid_ind)))
+			for mutant in offspring:
+				if random.random() < MUTPB: # Are we going to mutate? Try for each individual
+					print('mutating...')
+					toolbox.mutate(mutant)
+					del mutant.fitness.values
 
-		fitnesses = map(toolbox.evaluate, invalid_ind)
-		for ind, fit in zip(invalid_ind, fitnesses):
-			ind.fitness.values = fit
+			# Evaluate the individuals with an invalid fitness since for some we deleted their fitness values
+			invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
 
-		pop[:] = offspring # Replace the pop variable with the new offspring
+			print('There are {} individuals with no valid fitness function, lets validate them.'.format(len(invalid_ind)))
 
-		# Gather all the fitnesses in one list and print the stats
-		fits = [ind.fitness.values[0] for ind in pop]
+			fitnesses = map(toolbox.evaluate, invalid_ind)
+			for ind, fit in zip(invalid_ind, fitnesses):
+				ind.fitness.values = fit
+
+			pop[:] = offspring # Replace the pop variable with the new offspring
+
+			# Gather all the fitnesses in one list and print the stats
+			fits = [ind.fitness.values[0] for ind in pop]
+
+
+		# Out of while loop, find the winner and save it
+		best_f = 0.
+		best_p = None
+		for f, p in zip(fits, pop):
+			if f > best_f:
+				best_f = f
+				best_p = p
+
+		# Save best
+		path = experiment_name + "/winner_"+str(e)+".pkl"
+		with open(path, "wb") as f:
+		    pickle.dump(best_p, f)
+		    f.close()
+
+		print('End of this enemy, best fitness is: {}. Saving solution in pickle file...\n\n'.format(best_f))
+
+
+def main_test():
+	for e in enemies:
+		path = experiment_name + "/winner_"+str(e)+".pkl"
+		with open(path, "rb") as f:
+			winner = pickle.load(f)
+
+		n_hidden_neurons = 10
+
+		env = Environment(experiment_name=experiment_name,
+					  playermode="ai",
+					  speed="normal",
+					  enemies=[e],
+					  multiplemode="no",
+					  player_controller=player_controller(n_hidden_neurons),
+					  enemymode="static",
+					  level=2)
+
+		individual = np.asarray(winner) # Convert to np array so we can reshape if needed
+		f, p, e, t = env.play(individual)
+
+		print('End of game, fitness was: {}'.format(f))
 
 	
-	# We either found a solution or we reached the max number of generations. 
-	# TO DO: 
-	# 1. keep statistics, can be taken from 'fits'
-	# 2. Save 'winner' in a txt file
-	# 3. Load 'winner' 
-	# 4. Make test/train phase
-	# 5. Multiple enemy mode
-
 if __name__ == "__main__":
-	main()
+	if run_mode == 'train':
+		main()
+	elif run_mode == 'test':
+		main_test()
