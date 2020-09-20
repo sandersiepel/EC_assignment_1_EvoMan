@@ -54,7 +54,10 @@ toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 
 toolbox.register("evaluate", eval_individuals)
 toolbox.register("mate", tools.cxTwoPoint)
-toolbox.register("mutate", tools.mutGaussian, mu=0.0, sigma=0.2, indpb=0.2) # Independent probability of each attribute to be mutated
+
+# If mutUniformInt: mutate an individual by replacing attributes, with probability indpb, by a integer uniformly drawn between low and up inclusively. 
+# Other possibilities include: mutGaussian, mutPolynomialBounded, mutESLogNormal. See: https://deap.readthedocs.io/en/master/api/tools.html#deap.tools.mutUniformInt
+toolbox.register("mutate", tools.mutUniformInt, low = -10, up = 10, indpb = 0.1) # Independent probability of each attribute to be mutated
 toolbox.register("select", tools.selTournament, tournsize=3) # Could of course use another selection method
 
 
@@ -103,7 +106,6 @@ def main():
 
 			for mutant in offspring:
 				if random.random() < MUTPB: # Are we going to mutate? Try for each individual
-					print('mutating...')
 					toolbox.mutate(mutant)
 					del mutant.fitness.values
 
