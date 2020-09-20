@@ -24,25 +24,29 @@ experiment_name = 'dummy_demo_DEAP'
 if not os.path.exists(experiment_name):
 	os.makedirs(experiment_name)
 
+
+# Set variables for running
 n_hidden_neurons = 10
+generations = 100
+CXPB = 0.5 # The probability with which two individuals are crossed
+MUTPB = 0.2 # The probability for mutating an individual
+goal_fit = 90 # Termination fitness level to be reached
+pop_size = 50 # Population size for initialization
+run_mode = 'train' # Either train or test
 
-env = Environment(experiment_name=experiment_name,
-				  playermode="ai",
-				  speed="fastest",
-				  multiplemode="no",
-				  player_controller=player_controller(n_hidden_neurons),
-				  enemymode="static",
-				  level=2)
+# List of enemies to beat. Multiple enemies will result in an iteration of separate training sessions (specialist training)
+# Works in both train and test stages, given for testing a pickle file is present for each enemy in the structure: winner_x.pkl where x = enemy number.
+enemies = [1, 2, 3, 4, 5, 6, 7] 
+n_vars = 21 * n_hidden_neurons + (n_hidden_neurons + 1) * 5
 
-n_vars = (env.get_num_sensors() + 1) * n_hidden_neurons + (n_hidden_neurons + 1) * 5
-
+global global_enemy # Define in global scope so we can access it everywhere. Is initialized in the main loop.
 
 def eval_individuals(individual):
 	individual = np.asarray(individual) # Convert to np array so we can reshape if needed
 	f, p, e, t = env.play(individual)
 	return f, # Return as a tuple with second position open
 
-
+	
 # Initialize the DEAP environment
 creator.create("FitnessMax", base.Fitness, weights=(1.0,)) # Maximize one fitness function
 creator.create("Individual", list, fitness=creator.FitnessMax)
@@ -64,21 +68,23 @@ toolbox.register("mutate", tools.mutUniformInt, low = -10, up = 10, indpb = 0.1)
 toolbox.register("select", tools.selTournament, tournsize=3) # Could of course use another selection method
 
 
-# Set variables for running
-generations = 100
-CXPB = 0.5 # The probability with which two individuals are crossed
-MUTPB = 0.2 # The probability for mutating an individual
-goal_fit = 90 # Termination fitness level to be reached
-pop_size = 50 # Population size for initialization
-run_mode = 'train' # Either train or test
-
-# List of enemies to beat. Multiple enemies will result in an iteration of separate training sessions (specialist training)
-# Works in both train and test stages, given for testing a pickle file is present for each enemy in the structure: winner_x.pkl where x = enemy number.
-enemies = [1, 2, 3, 4, 5, 6, 7] 
-
 
 def main():
-	for e in enemies:
+	for current_enemy in enemies:
+		global_enemy = current_enemy
+
+		global env # Make the environment global so we can use the environment in the evaluate function. The environment should be initialized here
+		# since in this scope we know the current enemy. The evaluate function cannot be changed w.r.t. its parameters so we define the environment here.
+
+		env = Environment(experiment_name=experiment_name,
+				  playermode="ai",
+				  speed="fastest",
+				  multiplemode="no",
+				  enemies = [global_enemy],
+				  player_controller=player_controller(n_hidden_neurons),
+				  enemymode="static",
+				  level=2)
+
 		# Initialize population with shape (n_size, pop_size)
 		pop = toolbox.population(n=pop_size)
 
@@ -86,9 +92,9 @@ def main():
 		for ind, fit in zip(pop, fitnesses):
 			ind.fitness.values = fit # Set each individual's fitness level for the framework
 
-		fits = [ind.fitness.values[0] for ind in pop] # Plain list of all fitness values (float)
+		fits = [ind.fitness.values[0] for ind in pop] # Plain list of all fitness  (float)
 		
-		g = 0 # Generation counter
+		g = 0 # Generation countervalues
 
 		# As long as we haven't reached our fitness goal or the max generations, keep running
 		while max(fits) < goal_fit and g < generations:
@@ -136,12 +142,12 @@ def main():
 				best_p = p
 
 		# Save best
-		path = experiment_name + "/winner_"+str(e)+".pkl"
+		path = experiment_name + "/winner_"+str(current_enemy)+".pkl"
 		with open(path, "wb") as f:
 		    pickle.dump(best_p, f)
 		    f.close()
 
-		print('End of this enemy, best fitness is: {}. Saving solution in pickle file...\n\n'.format(best_f))
+		print('End of enemy {}, best fitness is: {}. Saving solution in pickle file...\n\n'.format(current_enemy, best_f))
 
 
 def main_test():
