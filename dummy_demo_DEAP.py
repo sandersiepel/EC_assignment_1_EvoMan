@@ -58,6 +58,9 @@ toolbox.register("mate", tools.cxTwoPoint)
 # If mutUniformInt: mutate an individual by replacing attributes, with probability indpb, by a integer uniformly drawn between low and up inclusively. 
 # Other possibilities include: mutGaussian, mutPolynomialBounded, mutESLogNormal. See: https://deap.readthedocs.io/en/master/api/tools.html#deap.tools.mutUniformInt
 toolbox.register("mutate", tools.mutUniformInt, low = -10, up = 10, indpb = 0.1) # Independent probability of each attribute to be mutated
+
+# There are different selection techniques such as tournament, roulette, selNSGA2, random, best, worst, et cetera.
+# Docs: https://deap.readthedocs.io/en/master/api/tools.html#deap.tools.selTournament
 toolbox.register("select", tools.selTournament, tournsize=3) # Could of course use another selection method
 
 
@@ -90,7 +93,7 @@ def main():
 		# As long as we haven't reached our fitness goal or the max generations, keep running
 		while max(fits) < goal_fit and g < generations:
 			g += 1
-			print("Generation {}. Population size: {}".format(g, len(pop)))
+			print("Generation {} of {}. Population size: {}".format(g, generations, len(pop)))
 
 			offspring = toolbox.select(pop, len(pop)) 
 			
