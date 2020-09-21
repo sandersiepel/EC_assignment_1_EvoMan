@@ -13,6 +13,7 @@ import numpy as np
 import random
 import pickle
 from demo_controller import player_controller
+import statistics
 
 from deap import base
 from deap import creator
@@ -31,10 +32,12 @@ generations = 100
 CXPB = 0.5 # The probability with which two individuals are crossed
 MUTPB = 0.2 # The probability for mutating an individual
 goal_fit = 90 # Termination fitness level to be reached
-pop_size = 5 # Population size for initialization
+pop_size = 10 # Population size for initialization
 run_mode = 'train' # Either train or test
 save_results = False
 max_stagnation = 5
+extinction_size = 80 # Size in percentage of the extinction in case of a doomsday. This proportion of the population 
+# will be deleted and replaced by newly introduced individuals (randomly initialized just like the original population)
 
 # List of enemies to beat. Multiple enemies will result in an iteration of separate training sessions (specialist training)
 # Works in both train and test stages, given for testing a pickle file is present for each enemy in the structure: winner_x.pkl where x = enemy number.
@@ -69,6 +72,36 @@ toolbox.register("mutate", tools.mutUniformInt, low = -10, up = 10, indpb = 0.1)
 # Docs: https://deap.readthedocs.io/en/master/api/tools.html#deap.tools.selTournament
 toolbox.register("select", tools.selTournament, tournsize=3) # Could of course use another selection method
 
+
+def determine(temp_individual, med):
+	if temp_individual.fitness.values[0] > med: # keep it!
+		return True
+	else:
+		return False
+
+
+def doomsday(pop):
+	fits = [ind.fitness.values[0] for ind in pop] # Ascending sorted list of all fitness values
+	med = statistics.median(fits)	
+	orig_pop_size = len(pop)
+	kept_individuals = 0
+	temp_population = []
+
+	# extinction_size is the proportion of the population we want to delete 
+
+	while pop:
+		temp_indiv = pop.pop() # Take last individual from population
+		if determine(temp_indiv, med): # If we want to keep the individual
+			temp_population.append(temp_indiv)
+			kept_individuals += 1
+	while temp_population:
+		pop.append(temp_population.pop())
+
+	# Create new sub-population
+	sub_pop = toolbox.population(n=(orig_pop_size - kept_individuals))
+	print('We have deleted {} individuals, population size is now: {}. Adding new sub population with size: {}'.format((orig_pop_size - kept_individuals), len(pop), len(sub_pop)))
+
+	return pop + sub_pop # Return new population
 
 
 def main():
@@ -127,8 +160,10 @@ def main():
 
 				# Evaluate the individuals with an invalid fitness since for some we deleted their fitness values
 				invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
+				valid_ind = [ind.fitness.values[0] for ind in offspring if ind.fitness.valid]
 
-				print('There are {} individuals with no valid fitness function, lets validate them.'.format(len(invalid_ind)))
+				print('There are {} individuals with no valid fitness value (and {} WITH valid fitness value), lets validate them.'.format(len(invalid_ind), len(valid_ind)))
+				print('Fitness values of individuals with a valid fitness value: {}'.format(valid_ind))
 
 				fitnesses = map(toolbox.evaluate, invalid_ind)
 				for ind, fit in zip(invalid_ind, fitnesses):
@@ -136,7 +171,7 @@ def main():
 
 				pop[:] = offspring # Replace the pop variable with the new offspring
 
-				# Gather all the fitnesses in one list and print the stats
+				# Gather all the fitnesses in one list
 				fits = [ind.fitness.values[0] for ind in pop]
 
 				if max(fits) > best_fitness: 
@@ -159,7 +194,8 @@ def main():
 			else:
 				# Max stagnation reached, introduce doomsday?
 				print("Max stagnation reached, doomsday...")
-				break
+				pop = doomsday(pop)
+				stagnation_counter = 0 # So we can continue the loop
 
 
 		# Out of while loop, find the winner and save it
