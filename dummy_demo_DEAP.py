@@ -14,6 +14,7 @@ import random
 import pickle
 from demo_controller import player_controller
 import statistics
+import math
 
 from deap import base
 from deap import creator
@@ -32,21 +33,22 @@ generations = 100
 CXPB = 0.5 # The probability with which two individuals are crossed
 MUTPB = 0.2 # The probability for mutating an individual
 goal_fit = 90 # Termination fitness level to be reached
-pop_size = 10 # Population size for initialization
+pop_size = 30 # Population size for initialization
 run_mode = 'train' # Either train or test
 save_results = False
-max_stagnation = 5
+max_stagnation = 10
 extinction_size = 80 # Size in percentage of the extinction in case of a doomsday. This proportion of the population 
 # will be deleted and replaced by newly introduced individuals (randomly initialized just like the original population)
 
 # List of enemies to beat. Multiple enemies will result in an iteration of separate training sessions (specialist training)
 # Works in both train and test stages, given for testing a pickle file is present for each enemy in the structure: winner_x.pkl where x = enemy number.
-enemies = [6] 
+enemies = [1] 
 n_vars = 21 * n_hidden_neurons + (n_hidden_neurons + 1) * 5
 
 global global_enemy # Define in global scope so we can access it everywhere. Is initialized in the main loop.
 
 def eval_individuals(individual):
+	# Main function for evaluating the fitness of individuals in the population
 	individual = np.asarray(individual) # Convert to np array so we can reshape if needed
 	f, p, e, t = env.play(individual)
 	return f, # Return as a tuple with second position open
@@ -73,35 +75,75 @@ toolbox.register("mutate", tools.mutUniformInt, low = -10, up = 10, indpb = 0.1)
 toolbox.register("select", tools.selTournament, tournsize=3) # Could of course use another selection method
 
 
-def determine(temp_individual, med):
-	if temp_individual.fitness.values[0] > med: # keep it!
-		return True
-	else:
-		return False
-
-
 def doomsday(pop):
-	fits = [ind.fitness.values[0] for ind in pop] # Ascending sorted list of all fitness values
-	med = statistics.median(fits)	
-	orig_pop_size = len(pop)
-	kept_individuals = 0
-	temp_population = []
+	# This function takes the population and performs a doomsday (aka extinction) with 80% of the population. This means that
+	# 20% is kept (elitism), so if population size = 30, we keep 6 elitism individuals. The other 80% is deleted. For 60% of the deleted individuals, 
+	# we create a new one and initialize it randomly. For the other 40% of the deleted individuals we perform a crossover. Candidates for crossover are 
+	# those members that survived extinction (20% elitism) together with the newly created random members. 
 
-	# extinction_size is the proportion of the population we want to delete 
+	# So the calculations are as follows (for population size 30)
+	# 80%*0.6 = 48% of random individuals, or 15 individuals
+	# 80%*0.4 = 32% of crossover individuals, or 9 individuals
+	# 20% of best ones from previous generation, or 6 individuals
 
-	while pop:
-		temp_indiv = pop.pop() # Take last individual from population
-		if determine(temp_indiv, med): # If we want to keep the individual
-			temp_population.append(temp_indiv)
-			kept_individuals += 1
-	while temp_population:
-		pop.append(temp_population.pop())
+	print('Doomsday...')
 
-	# Create new sub-population
-	sub_pop = toolbox.population(n=(orig_pop_size - kept_individuals))
-	print('We have deleted {} individuals, population size is now: {}. Adding new sub population with size: {}'.format((orig_pop_size - kept_individuals), len(pop), len(sub_pop)))
+	# First of all, calculate how many individuals should be kept for elitism. This is 20% of the length of the population. 
+	start_amount = math.ceil((len(pop) * 0.2)) # 
 
-	return pop + sub_pop # Return new population
+	# Now find the start_amount indices with the highest fitness values, so we can keep those
+	fits = [ind.fitness.values[0] for ind in pop]
+	ind = np.argpartition(fits, kth = -start_amount)[-start_amount:] 
+
+	# With the indices, filter the elitism population and the rest
+	pop_elitism = [p for idx, p in enumerate(pop) if idx in ind]
+	pop_80percent = [p for idx, p in enumerate(pop) if idx not in ind]
+
+	# Find the elitism their fitness values and print them (optional of course)
+	fits_pop = [ind.fitness.values[0] for ind in pop_elitism]
+	print("Top 6 elitism fitness values that are kept: {}".format(fits_pop))
+
+	# Calculate the proportions of the 80% individuals that should be deleted. 60% should become new individuals, 40% should crossover
+	# First calculate how many individuals should be randomly initialized (new individuals), 60% of the 80%
+	size_new_individuals = math.ceil((len(pop_80percent) * 0.6)) 
+
+	# Create the newly initialized population with size: size_new_individuals
+	new_pop = toolbox.population(n=size_new_individuals)
+	sub_pop = new_pop + pop_elitism # And merge the elitism population with the newly initialized individuals
+
+	# Calculate how many individuals the 40% of 80% is (for crossover)
+	size_crossover = len(pop_80percent)-size_new_individuals 
+
+	# Create the new population that should be crossed over with sub_pop
+	crossover_pop = toolbox.population(n=size_crossover)
+
+	offspring = toolbox.select(crossover_pop, len(crossover_pop)) 
+				
+	# Clone the selected individuals
+	offspring = list(map(toolbox.clone, offspring))
+
+	# Apply crossover and mutation on the offspring
+	for child1, child2 in zip(offspring[::2], offspring[1::2]): # Loop over all offspring
+		toolbox.mate(child1, child2)
+		del child1.fitness.values # Delete their old entries
+		del child2.fitness.values
+
+	# Re-create the pop variable by combining 20% elitism, 48% new individuals and 32% crossover individuals
+	pop[:] = sub_pop + offspring
+
+	invalid_ind = [ind for ind in pop if not ind.fitness.valid]
+	print("size of population after crossover: {}, of which {} dont have a valid fitness value".format(len(pop), len(invalid_ind)))
+	print('Lets validate them')
+	
+	# And as usual, validate the individuals that do not have a valid fitness value yet (should be 80% of individuals in pop)
+	fitnesses = map(toolbox.evaluate, invalid_ind)
+	for ind, fit in zip(invalid_ind, fitnesses):
+		ind.fitness.values = fit
+
+	fits = [ind.fitness.values[0] for ind in pop] # Plain list of all fitness (float)
+	print('Result after doomsday, we have {} individuals in the population and their fitnesses are: {}'.format(len(pop), fits))
+
+	return pop
 
 
 def main():
@@ -112,6 +154,7 @@ def main():
 		# since in this scope we know the current enemy. The evaluate function cannot be changed w.r.t. its parameters so we define the environment here.
 
 		stagnation_counter = 0
+		doomsdays = []
 		best_fitness = 0
 
 		env = Environment(experiment_name=experiment_name,
@@ -133,13 +176,13 @@ def main():
 		fits = [ind.fitness.values[0] for ind in pop] # Plain list of all fitness (float)
 		best_fitness = max(fits)
 		
-		g = 0 # Generation countervalues
+		g = 0 # Generation counter
 
 		# As long as we haven't reached our fitness goal or the max generations, keep running
 		while max(fits) < goal_fit and g < generations:
 			if stagnation_counter < max_stagnation:
 				g += 1
-				print("Generation {} of {}. Population size: {}".format(g, generations, len(pop)))
+				print("Generation {} of {}. Population size: {}. Doomsdays: {}".format(g, generations, len(pop), doomsdays))
 
 				offspring = toolbox.select(pop, len(pop)) 
 				
@@ -194,6 +237,7 @@ def main():
 			else:
 				# Max stagnation reached, introduce doomsday?
 				print("Max stagnation reached, doomsday...")
+				doomsdays.append(g)
 				pop = doomsday(pop)
 				stagnation_counter = 0 # So we can continue the loop
 
