@@ -17,6 +17,8 @@ import statistics
 import math
 import pandas as pd
 import pprint
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 from deap import base
 from deap import creator
@@ -31,20 +33,20 @@ if not os.path.exists(experiment_name):
 
 # Set variables for running
 n_hidden_neurons = 10
-generations = 5
+generations = 100
 CXPB = 0.5 # The probability with which two individuals are crossed
-MUTPB = 0.2 # The probability for mutating an individual
-goal_fit = 100 # Termination fitness level to be reached
-pop_size = 5 # Population size for initialization
+MUTPB = 0.3 # The probability for mutating an individual
+goal_fit = 101 # Termination fitness level to be reached
+pop_size = 30 # Population size for initialization
 run_mode = 'train' # Either train or test
-save_results = False
+save_results = True
 max_stagnation = 10 # Set to very high value if you don't want doomsday
 extinction_size = 80 # Size in percentage of the extinction in case of a doomsday. This proportion of the population 
 # will be deleted and replaced by newly introduced individuals (randomly initialized just like the original population)
 
 # List of enemies to beat. Multiple enemies will result in an iteration of separate training sessions (specialist training)
 # Works in both train and test stages, given for testing a pickle file is present for each enemy in the structure: winner_x.pkl where x = enemy number.
-enemies = [1, 2] 
+enemies = [1, 2, 3, 4, 5, 6, 7] 
 n_vars = 21 * n_hidden_neurons + (n_hidden_neurons + 1) * 5
 
 global global_enemy # Define in global scope so we can access it everywhere. Is initialized in the main loop.
@@ -150,8 +152,9 @@ def doomsday(pop):
 
 def main():
 	
-	global_stats = {}
-	for i in range(1, 3):
+	global_stats = {} # Keeps track of the global stats (avg fitness, max fitness, diversity)
+	for i in range(1, 11): # Range should be (1, 11) for 10 runs
+		np.random.seed(i)
 		stats = {} # To keep track of this round (from the 10 rounds) stats, for all enemies
 		for current_enemy in enemies:
 			# Define variables for this enemy's loop
@@ -238,10 +241,35 @@ def main():
 					sum2 = sum(x*x for x in fits)
 					std = abs(sum2 / length - mean**2)**0.5
 
-					print("Max fitness: {}, avg fitness: {}, std fitness: {}".format(max(fits), mean, std))
+					# Calculate diversity metric
+					# Loop over population and calculate average weight for each weight
+					weights = {} # Index:value
+					for individual in pop:
+					    for idx, w in enumerate(individual): # For each weight
+					        if idx in weights:
+					            weights[idx] += w
+					        else:
+					            weights[idx] = w
+
+					avg_weights = {}
+
+					for k, v in weights.items():
+					    avg_weights[k] = v/len(pop[0])
+
+					# Again loop over population, for each individual calculate the difference in weight relative to the average weight
+					total_error = 0
+					for indiv in pop:
+						total = 0
+						for idx, w in enumerate(indiv):
+						    err = abs(indiv[idx] - avg_weights[idx])
+						    total += err
+					    
+						total_error += total # Add to the counter for the entire population
+
+					print("Max fitness: {}, avg fitness: {}, std fitness: {}, total error (diversity): {}".format(max(fits), mean, std, total_error))
 
 					# End of generation, do stats
-					data = {"gen": g, "maxFitness": max(fits), "avgFitness": mean, "stdFitness": std, "alltimeMaxFitness": best_fitness}
+					data = {"gen": g, "maxFitness": max(fits), "avgFitness": mean, "stdFitness": std, "alltimeMaxFitness": best_fitness, "diversity_error":total_error}
 					if current_enemy not in stats:
 						stats[current_enemy] = []
 						stats[current_enemy].append(data)
@@ -256,9 +284,6 @@ def main():
 					stagnation_counter = 0 # So we can continue the loop
 
 
-			# Do statistics...
-
-
 			# Out of while loop, find the winner and save it
 			best_f = 0. # Best fitness
 			best_p = None # Best individual in population
@@ -269,8 +294,8 @@ def main():
 
 			if save_results:
 				# Save best individual for this enemy, from the latest population
-				print("Saving result in pickle file: winner_{}.pkl".format(current_enemy))
-				path = experiment_name + "/winner_"+str(current_enemy)+".pkl"
+				print("Saving result in pickle file: winner_{}_run{}.pkl".format(current_enemy, i))
+				path = experiment_name + "/winner_"+str(current_enemy)+"_run"+str(i)+".pkl"
 				with open(path, "wb") as f:
 				    pickle.dump(best_p, f)
 				    f.close()
@@ -319,15 +344,40 @@ def main_test():
 
 
 def getPlots(global_stats):
-	for enemy in global_stats.get(1):
-		df = pd.DataFrame()
-		for x in global_stats:
-			df = df.append(global_stats.get(x).get(enemy), ignore_index = True)
-			ind = 1 + (df.index / 10)
-			df['run'] = ind.astype(int)
-			df.set_index("run", inplace = True)
-		fileName = experiment_name + "/enemy" + str(enemy) +".png"
-		df.groupby("gen").mean().plot().get_figure().savefig(fileName)
+    for enemy in global_stats.get(1):
+        df = pd.DataFrame()
+        for x in global_stats:
+            df = df.append(global_stats.get(x).get(enemy), ignore_index = True)
+            ind = 1 + (df.index / 10)
+            df['run'] = ind.astype(int)
+            #df.set_index("run", inplace = True)
+        df3 = df.groupby("gen").std()
+        
+        fileName = "enemy" + str(enemy) +".png"
+        df.set_index("gen", inplace = True)
+        
+        avg = pd.DataFrame()
+        std = pd.DataFrame()
+        avg[['maximum_mean', 'average_mean']] = df[['maxFitness', 'avgFitness']]
+        std[['maximum_std', 'average_std']] = df[['maxFitness', 'avgFitness']]
+
+        plt.figure(figsize=(10,6))
+        ax = sns.lineplot(
+            data=std, estimator = "std",
+            hue="event", dashes = [(2, 2), (2, 2)]
+           )
+        sns.lineplot(
+            data=avg, estimator = "mean",
+            hue="event", style="event", dashes=False
+           )
+        
+        ax.set_title("Enemy: " + str(enemy))
+        ax.set_ylabel("Fitness")
+        ax.set_xlabel("Generation")
+        ax.set_ylim(-5,100)
+
+        path = experiment_name + "/enemy" + str(enemy) + ".png"
+        ax.get_figure().savefig(path)
 
 	
 if __name__ == "__main__":
