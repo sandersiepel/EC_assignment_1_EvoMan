@@ -15,6 +15,7 @@ import pickle
 from demo_controller import player_controller
 import statistics
 import math
+import pprint
 
 from deap import base
 from deap import creator
@@ -29,20 +30,20 @@ if not os.path.exists(experiment_name):
 
 # Set variables for running
 n_hidden_neurons = 10
-generations = 100
+generations = 10
 CXPB = 0.5 # The probability with which two individuals are crossed
 MUTPB = 0.2 # The probability for mutating an individual
-goal_fit = 90 # Termination fitness level to be reached
+goal_fit = 100 # Termination fitness level to be reached
 pop_size = 30 # Population size for initialization
 run_mode = 'train' # Either train or test
 save_results = False
-max_stagnation = 10
+max_stagnation = 10 # Set to very high value if you don't want doomsday
 extinction_size = 80 # Size in percentage of the extinction in case of a doomsday. This proportion of the population 
 # will be deleted and replaced by newly introduced individuals (randomly initialized just like the original population)
 
 # List of enemies to beat. Multiple enemies will result in an iteration of separate training sessions (specialist training)
 # Works in both train and test stages, given for testing a pickle file is present for each enemy in the structure: winner_x.pkl where x = enemy number.
-enemies = [1] 
+enemies = [1, 2] 
 n_vars = 21 * n_hidden_neurons + (n_hidden_neurons + 1) * 5
 
 global global_enemy # Define in global scope so we can access it everywhere. Is initialized in the main loop.
@@ -134,7 +135,7 @@ def doomsday(pop):
 	invalid_ind = [ind for ind in pop if not ind.fitness.valid]
 	print("size of population after crossover: {}, of which {} dont have a valid fitness value".format(len(pop), len(invalid_ind)))
 	print('Lets validate them')
-	
+
 	# And as usual, validate the individuals that do not have a valid fitness value yet (should be 80% of individuals in pop)
 	fitnesses = map(toolbox.evaluate, invalid_ind)
 	for ind, fit in zip(invalid_ind, fitnesses):
@@ -147,118 +148,140 @@ def doomsday(pop):
 
 
 def main():
-	for current_enemy in enemies:
-		# Define variables for this enemy's loop
-		global_enemy = current_enemy
-		global env # Make the environment global so we can use the environment in the evaluate function. The environment should be initialized here
-		# since in this scope we know the current enemy. The evaluate function cannot be changed w.r.t. its parameters so we define the environment here.
+	
+	global_stats = {}
+	for i in range(10):
+		stats = {} # To keep track of this round (from the 10 rounds) stats, for all enemies
+		for current_enemy in enemies:
+			# Define variables for this enemy's loop
+			global_enemy = current_enemy
+			global env # Make the environment global so we can use the environment in the evaluate function. The environment should be initialized here
+			# since in this scope we know the current enemy. The evaluate function cannot be changed w.r.t. its parameters so we define the environment here.
 
-		stagnation_counter = 0
-		doomsdays = []
-		best_fitness = 0
+			stagnation_counter = 0
+			doomsdays = []
+			best_fitness = 0
 
-		env = Environment(experiment_name=experiment_name,
-				  playermode="ai",
-				  speed="fastest",
-				  multiplemode="no",
-				  enemies = [global_enemy],
-				  player_controller=player_controller(n_hidden_neurons),
-				  enemymode="static",
-				  level=2)
+			env = Environment(experiment_name=experiment_name,
+					  playermode="ai",
+					  speed="fastest",
+					  multiplemode="no",
+					  enemies = [global_enemy],
+					  player_controller=player_controller(n_hidden_neurons),
+					  enemymode="static",
+					  level=2)
 
-		# Initialize population with shape (n_size, pop_size)
-		pop = toolbox.population(n=pop_size)
+			# Initialize population with shape (n_size, pop_size)
+			pop = toolbox.population(n=pop_size)
 
-		fitnesses = list(map(toolbox.evaluate, pop)) # List of tuples: (fitness, )
-		for ind, fit in zip(pop, fitnesses):
-			ind.fitness.values = fit # Set each individual's fitness level for the framework
+			fitnesses = list(map(toolbox.evaluate, pop)) # List of tuples: (fitness, )
+			for ind, fit in zip(pop, fitnesses):
+				ind.fitness.values = fit # Set each individual's fitness level for the framework
 
-		fits = [ind.fitness.values[0] for ind in pop] # Plain list of all fitness (float)
-		best_fitness = max(fits)
-		
-		g = 0 # Generation counter
+			fits = [ind.fitness.values[0] for ind in pop] # Plain list of all fitness (float)
+			best_fitness = max(fits)
+			
+			g = 0 # Generation counter
 
-		# As long as we haven't reached our fitness goal or the max generations, keep running
-		while max(fits) < goal_fit and g < generations:
-			if stagnation_counter < max_stagnation:
-				g += 1
-				print("Generation {} of {}. Population size: {}. Doomsdays: {}".format(g, generations, len(pop), doomsdays))
+			# As long as we haven't reached our fitness goal or the max generations, keep running
+			while max(fits) < goal_fit and g < generations:
+				if stagnation_counter < max_stagnation:
+					g += 1
+					print("\n\nRun {}, generation {} of {}. Population size: {}. Doomsdays: {}\n\n".format(i, g, generations, len(pop), doomsdays))
 
-				offspring = toolbox.select(pop, len(pop)) 
-				
-				# Clone the selected individuals
-				offspring = list(map(toolbox.clone, offspring))
+					offspring = toolbox.select(pop, len(pop)) 
+					
+					# Clone the selected individuals
+					offspring = list(map(toolbox.clone, offspring))
 
-				# Apply crossover and mutation on the offspring
-				for child1, child2 in zip(offspring[::2], offspring[1::2]): # Loop over all offspring
-					if random.random() < CXPB: # Probability the two are going to crossed
-						toolbox.mate(child1, child2)
-						del child1.fitness.values # Delete their old entries
-						del child2.fitness.values
+					# Apply crossover and mutation on the offspring
+					for child1, child2 in zip(offspring[::2], offspring[1::2]): # Loop over all offspring
+						if random.random() < CXPB: # Probability the two are going to crossed
+							toolbox.mate(child1, child2)
+							del child1.fitness.values # Delete their old entries
+							del child2.fitness.values
 
-				for mutant in offspring:
-					if random.random() < MUTPB: # Are we going to mutate? Try for each individual
-						toolbox.mutate(mutant)
-						del mutant.fitness.values
+					for mutant in offspring:
+						if random.random() < MUTPB: # Are we going to mutate? Try for each individual
+							toolbox.mutate(mutant)
+							del mutant.fitness.values
 
-				# Evaluate the individuals with an invalid fitness since for some we deleted their fitness values
-				invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
-				valid_ind = [ind.fitness.values[0] for ind in offspring if ind.fitness.valid]
+					# Evaluate the individuals with an invalid fitness since for some we deleted their fitness values
+					invalid_ind = [ind for ind in offspring if not ind.fitness.valid]
+					valid_ind = [ind.fitness.values[0] for ind in offspring if ind.fitness.valid]
 
-				print('There are {} individuals with no valid fitness value (and {} WITH valid fitness value), lets validate them.'.format(len(invalid_ind), len(valid_ind)))
-				print('Fitness values of individuals with a valid fitness value: {}'.format(valid_ind))
+					# print('There are {} individuals with no valid fitness value (and {} WITH valid fitness value), lets validate them.'.format(len(invalid_ind), len(valid_ind)))
+					# print('Fitness values of individuals with a valid fitness value: {}'.format(valid_ind))
 
-				fitnesses = map(toolbox.evaluate, invalid_ind)
-				for ind, fit in zip(invalid_ind, fitnesses):
-					ind.fitness.values = fit
+					fitnesses = map(toolbox.evaluate, invalid_ind)
+					for ind, fit in zip(invalid_ind, fitnesses):
+						ind.fitness.values = fit
 
-				pop[:] = offspring # Replace the pop variable with the new offspring
+					pop[:] = offspring # Replace the pop variable with the new offspring
 
-				# Gather all the fitnesses in one list
-				fits = [ind.fitness.values[0] for ind in pop]
+					# Gather all the fitnesses in one list
+					fits = [ind.fitness.values[0] for ind in pop]
 
-				if max(fits) > best_fitness: 
-					best_fitness = max(fits) # We track best fitness to determine the stagnation process
-					stagnation_counter = 0 # Reset stagnation counter since we improved relative to previous population
-					print("Resetting stagnation counter to 0 since we found improvement.")
+					if max(fits) > best_fitness: 
+						best_fitness = max(fits) # We track best fitness to determine the stagnation process
+						stagnation_counter = 0 # Reset stagnation counter since we improved relative to previous population
+						print("Resetting stagnation counter to 0 since we found improvement.")
+					else:
+						# No improvement, track for stagnation process (doomsday)
+						stagnation_counter += 1
+						print("No improvement, stagnation counter is now: {}".format(stagnation_counter))
+
+					# Calculations
+					length = len(pop)
+					mean = sum(fits)/length
+					sum2 = sum(x*x for x in fits)
+					std = abs(sum2 / length - mean**2)**0.5
+
+					print("Max fitness: {}, avg fitness: {}, std fitness: {}".format(max(fits), mean, std))
+
+					# End of generation, do stats
+					data = {"gen": g, "maxFitness": max(fits), "avgFitness": mean, "stdFitness": std, "alltimeMaxFitness": best_fitness}
+					if current_enemy not in stats:
+						stats[current_enemy] = []
+						stats[current_enemy].append(data)
+					else:
+						stats[current_enemy].append(data)
+
 				else:
-					# No improvement, track for stagnation process (doomsday)
-					stagnation_counter += 1
-					print("No improvement, stagnation counter is now: {}".format(stagnation_counter))
-
-				# Calculations
-				length = len(pop)
-				mean = sum(fits)/length
-				sum2 = sum(x*x for x in fits)
-				std = abs(sum2 / length - mean**2)**0.5
-
-				print("Max fitness: {}, avg fitness: {}, std fitness: {}".format(max(fits), mean, std))
-
-			else:
-				# Max stagnation reached, introduce doomsday?
-				print("Max stagnation reached, doomsday...")
-				doomsdays.append(g)
-				pop = doomsday(pop)
-				stagnation_counter = 0 # So we can continue the loop
+					# Max stagnation reached, introduce doomsday?
+					print("Max stagnation reached, doomsday...")
+					doomsdays.append(g)
+					pop = doomsday(pop)
+					stagnation_counter = 0 # So we can continue the loop
 
 
-		# Out of while loop, find the winner and save it
-		best_f = 0. # Best fitness
-		best_p = None # Best individual in population
-		for f, p in zip(fits, pop):
-			if f > best_f:
-				best_f = f
-				best_p = p
+			# Do statistics...
 
-		if save_results:
-			# Save best individual for this enemy, from the latest population
-			print("Saving result in pickle file: winner_{}.pkl".format(current_enemy))
-			path = experiment_name + "/winner_"+str(current_enemy)+".pkl"
-			with open(path, "wb") as f:
-			    pickle.dump(best_p, f)
-			    f.close()
 
-		print('End of enemy {}, best fitness is: {}.\n\n'.format(current_enemy, best_f))
+			# Out of while loop, find the winner and save it
+			best_f = 0. # Best fitness
+			best_p = None # Best individual in population
+			for f, p in zip(fits, pop):
+				if f > best_f:
+					best_f = f
+					best_p = p
+
+			if save_results:
+				# Save best individual for this enemy, from the latest population
+				print("Saving result in pickle file: winner_{}.pkl".format(current_enemy))
+				path = experiment_name + "/winner_"+str(current_enemy)+".pkl"
+				with open(path, "wb") as f:
+				    pickle.dump(best_p, f)
+				    f.close()
+
+			print('End of enemy {}, best fitness is: {}.\n\n'.format(current_enemy, best_f))
+
+
+
+		# End of enemy loop, going for next iteration from the 10
+		global_stats[i] = stats
+		print('Global stats: {}'.format(global_stats))
+
 
 
 def main_test():
