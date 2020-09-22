@@ -15,6 +15,7 @@ import pickle
 from demo_controller import player_controller
 import statistics
 import math
+import pandas as pd
 import pprint
 
 from deap import base
@@ -30,11 +31,11 @@ if not os.path.exists(experiment_name):
 
 # Set variables for running
 n_hidden_neurons = 10
-generations = 10
+generations = 5
 CXPB = 0.5 # The probability with which two individuals are crossed
 MUTPB = 0.2 # The probability for mutating an individual
 goal_fit = 100 # Termination fitness level to be reached
-pop_size = 30 # Population size for initialization
+pop_size = 5 # Population size for initialization
 run_mode = 'train' # Either train or test
 save_results = False
 max_stagnation = 10 # Set to very high value if you don't want doomsday
@@ -150,7 +151,7 @@ def doomsday(pop):
 def main():
 	
 	global_stats = {}
-	for i in range(10):
+	for i in range(1, 3):
 		stats = {} # To keep track of this round (from the 10 rounds) stats, for all enemies
 		for current_enemy in enemies:
 			# Define variables for this enemy's loop
@@ -280,7 +281,16 @@ def main():
 
 		# End of enemy loop, going for next iteration from the 10
 		global_stats[i] = stats
-		print('Global stats: {}'.format(global_stats))
+
+	# After all 10 runs are done, plot the stats
+	pprint.pprint(global_stats)
+
+	# Save the stats to a text file
+	path = experiment_name + "/global_stats.txt"
+	with open(path, 'wb') as f:
+		pickle.dump(global_stats, f)
+
+	getPlots(global_stats)
 
 
 
@@ -306,6 +316,18 @@ def main_test():
 		f, p, e, t = env.play(individual)
 
 		print('End of game, fitness was: {}'.format(f))
+
+
+def getPlots(global_stats):
+	for enemy in global_stats.get(1):
+		df = pd.DataFrame()
+		for x in global_stats:
+			df = df.append(global_stats.get(x).get(enemy), ignore_index = True)
+			ind = 1 + (df.index / 10)
+			df['run'] = ind.astype(int)
+			df.set_index("run", inplace = True)
+		fileName = experiment_name + "/enemy" + str(enemy) +".png"
+		df.groupby("gen").mean().plot().get_figure().savefig(fileName)
 
 	
 if __name__ == "__main__":
